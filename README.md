@@ -4,7 +4,7 @@ This repository contains the software modules developed for the **Attitude Deter
 
 ## Current Modules
 
-### [PWM Controller (Magnetorquer Driver)](https://github.com/SPARCS-Mission/ADCS/tree/main/PWMDriver)
+### [PWM Controller (Magnetorquer Driver)](https://github.com/SPARCS-Mission/ADCS/tree/main/MTQDriver)
 
 The **PWM Controller** module provides a hardware-agnostic driver to control magnetorquers via pulse-width modulation (PWM). This is critical for generating magnetic dipole moments to control CubeSat attitude using Earth’s magnetic field.
 
