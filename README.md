@@ -17,6 +17,6 @@ The **PWM Controller** module provides a hardware-agnostic driver to control mag
 
 > 💡 This module is tested on Arduino Mega 2560 with MTQ coil on pin 7.
 
-# Contact
+## Contact
 Maintained by [Danial Rezaei](https://github.com/DanialRezaei)  
 For questions, feedback, or collaboration, feel free to reach out through GitHub Issues or contact directly via GitHub.
