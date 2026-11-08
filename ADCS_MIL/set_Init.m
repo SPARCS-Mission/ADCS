@@ -201,16 +201,68 @@ satellite.SS.MisalagnmentMatrix = [  1,   ss_dth_z, -ss_dth_y;
 J_MOI = diag(satellite.MOI);
 k_Bdot = ((4 * pi * 0.5236 * 0.0055) / (5677.2 * (4.5e-5)^2));
 % =========================================================================
-%% Nadir Pointing LQR Controller Gains
+%% Nadir Pointing LQR Controller Gains (Attitude Control Subsystem)
 % =========================================================================
-satellite.StateMatrix_A = [zeros(3), 0.5 * eye(3); zeros(3), zeros(3)];
-satellite.InputMatrix_B = [zeros(3); satellite.InvMOI];
-Controller.LQR.Q = diag([10, 10, 10, 1, 1, 1]); 
-Controller.LQR.R = diag([1, 1, 1]);             
+% 1. Linearized State Space Model Definition
+% State Vector: x = [q_err(1:3)*sign(q_err(4)) ; omega_err] (6x1 vector)
+% Input Vector: u = tau_req (3x1 commanded torque vector)
+
+% A-Matrix (6x6): Defines the unforced system dynamics.
+% Row 1-3: Kinematic relationship q_dot = 0.5 * omega_err
+% Row 4-6: Dynamic relationship omega_dot = 0 (linearized around nominal zero rate)
+satellite.StateMatrix_A = [zeros(3), 0.5 * eye(3); 
+                           zeros(3), zeros(3)];
+                       
+% B-Matrix (6x3): Defines how the control input (torque) affects the states.
+% Row 1-3: Torque does not directly affect kinematics.
+% Row 4-6: omega_dot = I^-1 * tau_req (Euler's equation linearized)
+satellite.InputMatrix_B = [zeros(3); 
+                           satellite.InvMOI];
+
+% =========================================================================
+% 2. LQR Cost Function Tuning via Bryson's Rule
+% By incorporating the physical saturation limits of the reaction wheels 
+% into the R matrix, the LQR optimization will naturally penalize torque 
+% commands that exceed the actuator's physical capabilities. This prevents 
+% deep saturation and subsequent wind-up issues in the flight software.
+% =========================================================================
+
+% --- Maximum Acceptable State Errors ---
+max_angle_err_deg = 5.0;                         % Maximum allowable pointing error [deg]
+max_angle_err_rad = deg2rad(max_angle_err_deg);
+% For small angles, the quaternion vector part is approximately sin(theta/2)
+q_max = sin(max_angle_err_rad / 2);              
+
+max_rate_err_deg = 1.0;                          % Maximum allowable body rate error [deg/s]
+max_rate_err_rad = deg2rad(max_rate_err_deg);
+
+% --- Maximum Physical Actuator Limits (From Phase B Specs) ---
+max_tau = 0.0022;                                % Reaction wheel max nominal torque [N.m] (2.2 mN.m)
+
+% --- Computing Q and R Weighting Matrices ---
+% Bryson's Rule: Weight = 1 / (Maximum_Acceptable_Value)^2
+Q_q_weight = 1 / (q_max^2);                      % Penalty for quaternion (attitude) error
+Q_w_weight = 1 / (max_rate_err_rad^2);           % Penalty for angular velocity error
+R_tau_weight = 1 / (max_tau^2);                  % Heavy penalty for torque to respect RW saturation
+
+% Constructing the diagonal Q (6x6) and R (3x3) matrices
+Controller.LQR.Q = diag([Q_q_weight, Q_q_weight, Q_q_weight, Q_w_weight, Q_w_weight, Q_w_weight]); 
+Controller.LQR.R = diag([R_tau_weight, R_tau_weight, R_tau_weight]);             
+
+% =========================================================================
+% 3. Optimal Gain Matrix Computation
+% =========================================================================
+% The resulting K matrix (3x6) will be used in Simulink as: tau_req = -K * x
 Controller.LQR.K = lqr(satellite.StateMatrix_A, satellite.InputMatrix_B, Controller.LQR.Q, Controller.LQR.R);
-Controller.Desat.K_desat = 0.005; 
-Controller.Desat.h_bias = [0; 0; 0]; 
-satellite.MTQ.MaxDipole = 0.20; 
+
+% =========================================================================
+%% Momentum Management & Desaturation Constants (Magnetic Control Subsystem)
+% =========================================================================
+% These constants are utilized in the Feed-Forward decoupling block to dump
+% the accumulated momentum using the magnetorquers via the cross-product law.
+
+Controller.Desat.K_desat = 0.005;                % Desaturation proportional gain
+Controller.Desat.h_bias = [0; 0; 0];             % Target momentum state for the wheels (Zero bias)
 
 %% Attitude Determination
 NoiseStd = [0.0035; 0.0012];                  % Sun sensor (0.2 deg ~ 3.5mrad), Mag (0.069 deg ~ 1.2mrad)
@@ -389,3 +441,7 @@ initial_bias_variance_rad2_per_s2 = initial_bias_uncertainty_rad_per_s^2;
 P0_att = eye(3) * initial_variance_rad2;
 P0_bias = eye(3) * initial_bias_variance_rad2_per_s2;
 P0 = blkdiag(P0_att, P0_bias);
+
+%% Momentum Management
+h_bias = [0; 0; 0];  % Desired h
+Controller.Desat.K_desat = 0.005;
